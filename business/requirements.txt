@@ -1,0 +1,10 @@
+fastapi[all]
+sqlalchemy[asyncio]
+asyncpg
+httpx
+pydantic
+pydantic-settings
+python-dateutil
+aio-pika
+numpy
+pandas

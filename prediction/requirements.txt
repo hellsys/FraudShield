@@ -1,0 +1,16 @@
+fastapi[all]
+torch
+torch_geometric
+catboost
+scikit-learn==1.6.1
+joblib
+pydantic
+pydantic-settings
+aioboto3
+numpy
+sqlalchemy[asyncio]
+asyncpg
+python-dateutil
+category_encoders
+aio-pika
+pymon

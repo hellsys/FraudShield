@@ -1,0 +1,112 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [fraudnet]
+    ports:
+      - "5432:5432"
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    networks: [fraudnet]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASS}
+    volumes:
+      - minio:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks: [fraudnet]
+
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 12            
+
+  minio-mc:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy      
+    volumes:
+      - ./bootstrap:/bootstrap:ro       
+    entrypoint: >
+      /bin/sh -c '
+        set -e
+        echo "➜ configuring MinIO …"
+        mc alias set myminio http://minio:9000 "$${MINIO_USER}" "$${MINIO_PASS}"
+        mc mb -p myminio/"$${S3_BUCKET}" || true
+        if [ -d /bootstrap ] && [ "$(ls -A /bootstrap)" ]; then
+          echo "➜ uploading bootstrap files"
+          mc cp --recursive /bootstrap/* myminio/"$${S3_BUCKET}"/
+        fi
+        echo "✓ MinIO is ready"
+        tail -f /dev/null   
+      '
+    environment:
+      MINIO_USER: ${MINIO_USER}
+      MINIO_PASS: ${MINIO_PASS}
+      S3_BUCKET:  ${S3_BUCKET}
+    networks: [fraudnet]
+
+  prediction:
+    build: ./prediction
+    restart: unless-stopped
+    env_file:
+      - .env
+
+    depends_on:
+      db:          
+        condition: service_started
+      minio:      
+        condition: service_started
+      rabbitmq:  
+        condition: service_healthy
+    networks: [fraudnet]
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+  business:
+    build: ./business
+    env_file:
+      - .env
+      
+    depends_on:
+      db:          
+        condition: service_started
+      minio:       
+        condition: service_started
+      rabbitmq:    
+        condition: service_healthy
+    networks: [fraudnet]
+    ports:
+      - "8080:8000"
+
+volumes:
+  pgdata:
+  minio:
+
+networks:
+  fraudnet:
