@@ -37,10 +37,52 @@ docker compose up --build # запускаем всю систему
 * Business API          — http://localhost:8080/docs
 * RabbitMQ UI           — http://localhost:15673 (guest / guest)
 * MinIO Console         — http://localhost:9001  (minioadmin / minioadmin)
+* Airflow Web UI        — http://localhost:8089   (admin / admin)
 * Streamlit UI          — http://localhost:8501 (отдельно `streamlit run ui.py`)
 
 > Файлы моделей можно положить в каталог `bootstrap/` — при поднятии контейнера
 > MinIO они автоматически загрузятся в бакет, указанный в `.env` (`S3_BUCKET`).
+
+### Airflow
+
+В compose-файле добавлен полный стек Airflow (**LocalExecutor**):
+
+* `airflow-db`          — отдельный Postgres-метастор;
+* `airflow-init`        — однократная инициализация БД + создание учётки *admin*/*admin*;
+* `airflow-webserver`   — UI :8089;
+* `airflow-scheduler`   — оркестратор DAG’ов.
+
+Каталог `dags/` из репозитория монтируется внутрь контейнеров ⇒ ваш DAG
+`recalculate_user_embeddings` автоматически подхватится.
+
+Запуск/остановка:
+
+```bash
+# старт всей системы, включая Airflow
+docker compose up --build -d
+
+# посмотреть логи scheduler’а
+docker compose logs -f airflow-scheduler
+
+# выключить только Airflow (остальные сервисы могут продолжать работать)
+docker compose stop airflow-scheduler airflow-webserver airflow-db airflow-init
+```
+
+По умолчанию DAG активен и будет выполняться раз в сутки. Для ручного старта
+зайдите в UI → *recalculate_user_embeddings* → *Trigger DAG*.
+
+> Базовый образ Airflow не содержит PyTorch и Torch-Geometric, необходимые для
+> работы `recalculate_user_embeddings`. Установите их один раз после старта
+> контейнеров:
+
+```bash
+# внутри веб-контейнера (то же самое для scheduler)
+docker compose exec airflow-webserver pip install torch==2.3.0 torch_geometric
+docker compose restart airflow-webserver airflow-scheduler
+```
+
+Локально можете добавить собственный Dockerfile и заменить образ в compose, если
+предпочитаете более автоматизированный способ.
 
 ## Business-service
 

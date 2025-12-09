@@ -38,7 +38,7 @@ async def main() -> None:  # noqa: D401
         await chan.set_qos(prefetch_count=settings.prefetch)
 
         req_q = await chan.declare_queue("predict.request", durable=True)
-
+        logger.info("Predictor is ready, waiting for requests...")
         async with req_q.iterator() as queue_iter:
             async for msg in queue_iter:
                 async with msg.process():

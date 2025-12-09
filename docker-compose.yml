@@ -104,9 +104,95 @@ services:
     ports:
       - "8080:8000"
 
+  # ─────────────────────────────────────────────────────────────────
+  # Airflow (LocalExecutor) — web UI + scheduler + metadata database
+  # ─────────────────────────────────────────────────────────────────
+
+  airflow-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_db:/var/lib/postgresql/data
+    networks: [fraudnet]
+
+  airflow-init:
+    image: apache/airflow:2.8.1-python3.11
+    depends_on:
+      airflow-db:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: ""
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      _AIRFLOW_WWW_USER_USERNAME: admin
+      _AIRFLOW_WWW_USER_PASSWORD: admin
+      PYTHONPATH: "/opt/airflow/app"
+    command: bash -c "airflow db upgrade && airflow users create --role Admin --username $$_AIRFLOW_WWW_USER_USERNAME --password $$_AIRFLOW_WWW_USER_PASSWORD --firstname Air --lastname Flow --email admin@example.org"
+    networks: [fraudnet]
+    volumes:
+      - ./:/opt/airflow/app          # ➜ весь репозиторий
+      - ./dags:/opt/airflow/dags
+
+  airflow-webserver:
+    image: apache/airflow:2.8.1-python3.11
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: ""
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: "supersecretkey"
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      _PIP_ADDITIONAL_REQUIREMENTS: "fastapi[all] torch torch_geometric catboost scikit-learn==1.6.1 scipy<=1.15.3 joblib pydantic pydantic-settings aioboto3 numpy sqlalchemy[asyncio] asyncpg python-dateutil category_encoders aio-pika pymon"
+    ports:
+      - "8089:8080"
+    networks: [fraudnet]
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - ./:/opt/airflow/app
+
+    command: webserver
+
+  airflow-scheduler:
+    image: apache/airflow:2.8.1-python3.11
+    depends_on:
+      airflow-webserver:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: ""
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: "/opt/airflow/app"
+      _PIP_ADDITIONAL_REQUIREMENTS: "fastapi[all] torch torch_geometric catboost scikit-learn==1.6.1 scipy<=1.15.3 joblib pydantic pydantic-settings aioboto3 numpy==1.26.4 sqlalchemy[asyncio] asyncpg python-dateutil category_encoders aio-pika pymon"
+
+    networks: [fraudnet]
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - ./:/opt/airflow/app          # ➜ весь репозиторий
+      
+
+      
+    command: scheduler
+
 volumes:
   pgdata:
   minio:
+  airflow_db:
+  airflow_logs:
 
 networks:
   fraudnet:
